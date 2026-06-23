@@ -10,7 +10,8 @@ const env = {
   virusTotalApiKey: process.env.VIRUSTOTAL_API_KEY || '',
   ollamaBaseUrl: process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434',
   ollamaModel: process.env.OLLAMA_MODEL || 'llama3.1:8b',
-  ollamaEnabled: String(process.env.OLLAMA_ENABLED || 'true').toLowerCase() === 'true'
+  ollamaEnabled: String(process.env.OLLAMA_ENABLED || 'true').toLowerCase() === 'true',
+  geminiApiKey: process.env.GEMINI_API_KEY || ''
 };
 
 module.exports = env;

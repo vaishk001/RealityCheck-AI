@@ -142,7 +142,7 @@ function normalizeAiSchema(candidate) {
 /**
  * Convert strict AI schema to existing scoring pipeline format.
  */
-function toScoringOutput(aiResult) {
+function toScoringOutput(aiResult, source = 'ollama') {
   const riskMultiplierMap = {
     Low: 0.45,
     Medium: 0.75,
@@ -163,7 +163,7 @@ function toScoringOutput(aiResult) {
   return {
     score,
     reasons: reasons.slice(0, 5),
-    source: 'ollama',
+    source,
     confidence: aiResult.confidence,
     isScam,
     threatType: aiResult.threatType,
@@ -218,6 +218,39 @@ function buildPrompt(text) {
   ].join('\n');
 }
 
+async function callGemini(text) {
+  const response = await axios.post(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.geminiApiKey}`,
+    {
+      contents: [
+        {
+          parts: [
+            { text: buildPrompt(text) }
+          ]
+        }
+      ],
+      generationConfig: {
+        responseMimeType: 'application/json'
+      }
+    },
+    { timeout: AI_TIMEOUT_MS }
+  );
+
+  const raw = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  let parsed = null;
+
+  if (typeof raw === 'string' && raw.length > 0) {
+    try {
+      parsed = JSON.parse(raw);
+    } catch (_) {
+      logInvalidAiResponse(raw, 'gemini-parse');
+      parsed = parseJsonFromModelOutput(raw);
+    }
+  }
+
+  return { raw, parsed };
+}
+
 async function callOllama(text) {
   const response = await axios.post(
     `${env.ollamaBaseUrl}/api/generate`,
@@ -265,12 +298,12 @@ function logInvalidAiResponse(raw, attempt) {
   console.warn(`[AI] Invalid JSON response on attempt ${attempt}. Raw preview: ${preview}`);
 }
 
-function logAiProviderError(error) {
+function logAiProviderError(error, provider = 'Ollama') {
   const status = error?.response?.status;
   const dataPreview = JSON.stringify(error?.response?.data || {}).slice(0, 500);
   const msg = error?.message || 'unknown error';
 
-  console.warn(`[AI] Ollama request failed (status: ${status || 'n/a'}): ${msg}. Response: ${dataPreview}`);
+  console.warn(`[AI] ${provider} request failed (status: ${status || 'n/a'}): ${msg}. Response: ${dataPreview}`);
 }
 
 /**
@@ -278,6 +311,35 @@ function logAiProviderError(error) {
  * Returns { score, reasons } for direct scoring pipeline integration.
  */
 async function analyzeTextWithAI(text) {
+  // Use Gemini if API key is present
+  if (env.geminiApiKey) {
+    try {
+      let lastRaw = '';
+
+      for (let attempt = 1; attempt <= MAX_PARSE_RETRIES + 1; attempt += 1) {
+        const { raw, parsed } = await callGemini(text);
+        lastRaw = raw;
+
+        if (parsed && typeof parsed === 'object') {
+          const normalized = normalizeAiSchema(parsed);
+          return toScoringOutput(normalized, 'gemini');
+        }
+
+        logInvalidAiResponse(raw, attempt);
+      }
+
+      logInvalidAiResponse(lastRaw, MAX_PARSE_RETRIES + 1);
+      return toScoringOutput(normalizeAiSchema(SAFE_FALLBACK), 'gemini');
+    } catch (error) {
+      logAiProviderError(error, 'Gemini');
+      const normalizedFallback = normalizeAiSchema(SAFE_FALLBACK);
+      const fallbackOutput = toScoringOutput(normalizedFallback, 'gemini');
+      fallbackOutput.reasons = ['Gemini AI analyzer error/timeout'];
+      return fallbackOutput;
+    }
+  }
+
+  // Fallback to Ollama if enabled
   if (!env.ollamaEnabled) {
     return { score: 0, reasons: ['AI analyzer disabled'], source: 'ollama' };
   }
@@ -293,7 +355,7 @@ async function analyzeTextWithAI(text) {
 
       if (parsed && typeof parsed === 'object') {
         const normalized = normalizeAiSchema(parsed);
-        return toScoringOutput(normalized);
+        return toScoringOutput(normalized, 'ollama');
       }
 
       logInvalidAiResponse(raw, attempt);
@@ -301,13 +363,13 @@ async function analyzeTextWithAI(text) {
 
     // If all retries fail, return safe fallback.
     logInvalidAiResponse(lastRaw, MAX_PARSE_RETRIES + 1);
-    return toScoringOutput(normalizeAiSchema(SAFE_FALLBACK));
+    return toScoringOutput(normalizeAiSchema(SAFE_FALLBACK), 'ollama');
   } catch (error) {
-    logAiProviderError(error);
+    logAiProviderError(error, 'Ollama');
 
     // Graceful fallback on timeout / model crash / parse issues.
     const normalizedFallback = normalizeAiSchema(SAFE_FALLBACK);
-    const fallbackOutput = toScoringOutput(normalizedFallback);
+    const fallbackOutput = toScoringOutput(normalizedFallback, 'ollama');
 
     if (error.code === 'ECONNABORTED') {
       fallbackOutput.reasons = ['AI analyzer timeout'];
