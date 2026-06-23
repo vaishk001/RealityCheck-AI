@@ -7,8 +7,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "build": "npm install --prefix web && npm run build --prefix web",
-    "build:web": "npm install --prefix web && npm run build --prefix web"
+    "build": "npm install --production=false --prefix web && npm run build --prefix web",
+    "build:web": "npm install --production=false --prefix web && npm run build --prefix web"
   },
   "dependencies": {
     "axios": "^1.8.2",
