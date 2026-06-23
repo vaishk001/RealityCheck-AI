@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "build": "npm install --production=false --prefix web && npm run build --prefix web",
+    "build": "npm install && npm install --production=false --prefix web && npm run build --prefix web",
     "build:web": "npm install --production=false --prefix web && npm run build --prefix web"
   },
   "dependencies": {
