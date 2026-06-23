@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: realitycheck-ai
+    env: node
+    buildCommand: npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_SAFE_BROWSING_API_KEY
+        sync: false
+      - key: VIRUSTOTAL_API_KEY
+        sync: false
